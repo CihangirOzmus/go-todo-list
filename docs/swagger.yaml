@@ -1,0 +1,621 @@
+basePath: /
+definitions:
+  handler.CreateListRequest:
+    properties:
+      title:
+        example: Groceries
+        type: string
+    type: object
+  handler.CreateTodoRequest:
+    properties:
+      content:
+        example: buy milk
+        type: string
+    type: object
+  handler.ErrorResponse:
+    properties:
+      error:
+        example: validation failed
+        type: string
+    type: object
+  handler.LoginRequest:
+    properties:
+      email:
+        example: alice@example.com
+        type: string
+      password:
+        example: hunter22
+        type: string
+    type: object
+  handler.LoginResponse:
+    properties:
+      token:
+        type: string
+    type: object
+  handler.RegisterRequest:
+    properties:
+      email:
+        example: alice@example.com
+        type: string
+      password:
+        example: hunter22
+        type: string
+      username:
+        example: alice
+        type: string
+    type: object
+  handler.SetRoleRequest:
+    properties:
+      role:
+        allOf:
+        - $ref: '#/definitions/models.Role'
+        example: power_user
+    type: object
+  handler.StatusResponse:
+    properties:
+      status:
+        example: ok
+        type: string
+    type: object
+  handler.UpdateListRequest:
+    properties:
+      title:
+        example: Renamed list
+        type: string
+    type: object
+  handler.UpdateTodoRequest:
+    properties:
+      completed:
+        type: boolean
+      content:
+        example: buy 2% milk
+        type: string
+    type: object
+  models.Role:
+    enum:
+    - user
+    - power_user
+    - admin
+    type: string
+    x-enum-varnames:
+    - RoleUser
+    - RolePowerUser
+    - RoleAdmin
+  models.Todo:
+    properties:
+      completed:
+        type: boolean
+      content:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: integer
+      list_id:
+        type: integer
+      updated_at:
+        type: string
+    type: object
+  models.TodoList:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: integer
+      title:
+        type: string
+      todos:
+        items:
+          $ref: '#/definitions/models.Todo'
+        type: array
+      updated_at:
+        type: string
+      user_id:
+        type: integer
+    type: object
+  models.User:
+    properties:
+      created_at:
+        type: string
+      email:
+        type: string
+      id:
+        type: integer
+      role:
+        $ref: '#/definitions/models.Role'
+      updated_at:
+        type: string
+      username:
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: |-
+    Multi-user todo list REST API with JWT auth and role-based access.
+    Roles: `user` (own CRUD), `power_user` (own CRUD + read-all lists), `admin` (all + user management).
+  title: Todo List API
+  version: "1.0"
+paths:
+  /admin/lists:
+    get:
+      description: Available to power_user and admin only.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.TodoList'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Cross-user list feed
+      tags:
+      - admin
+  /admin/users:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.User'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List all users
+      tags:
+      - admin
+  /admin/users/{id}:
+    delete:
+      description: Cascades to the user's todo lists and todos.
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete a user
+      tags:
+      - admin
+  /admin/users/{id}/role:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: New role
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.SetRoleRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.StatusResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Change a user's role
+      tags:
+      - admin
+  /lists:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.TodoList'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List own todo lists
+      tags:
+      - lists
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: List payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.CreateListRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.TodoList'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create a todo list
+      tags:
+      - lists
+  /lists/{id}:
+    delete:
+      description: Owners and admin only. Cascades to the list's todos.
+      parameters:
+      - description: List ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete a list
+      tags:
+      - lists
+    get:
+      description: Owners always allowed; power_user and admin can read any user's
+        list.
+      parameters:
+      - description: List ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.TodoList'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get a todo list
+      tags:
+      - lists
+    put:
+      consumes:
+      - application/json
+      description: Owners and admin only. power_user is read-only across users.
+      parameters:
+      - description: List ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: New title
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.UpdateListRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.StatusResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update a list's title
+      tags:
+      - lists
+  /lists/{id}/todos:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: List ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Todo payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.CreateTodoRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.Todo'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Add a todo to a list
+      tags:
+      - todos
+  /login:
+    post:
+      consumes:
+      - application/json
+      description: 'Exchange email and password for a JWT to send as `Authorization:
+        Bearer <token>`.'
+      parameters:
+      - description: Credentials
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.LoginResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Login
+      tags:
+      - auth
+  /me:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.User'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Current user
+      tags:
+      - auth
+  /register:
+    post:
+      consumes:
+      - application/json
+      description: Create a new user. The role is always "user"; use the admin endpoints
+        to promote.
+      parameters:
+      - description: Registration payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.RegisterRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.User'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Register
+      tags:
+      - auth
+  /todos/{id}:
+    delete:
+      parameters:
+      - description: Todo ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete a todo
+      tags:
+      - todos
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Todo ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Todo payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/handler.UpdateTodoRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.StatusResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update a todo
+      tags:
+      - todos
+schemes:
+- http
+- https
+securityDefinitions:
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
