@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:latest
+    image: postgres:18
     environment:
       POSTGRES_USER: todo
       POSTGRES_PASSWORD: todo
@@ -13,7 +13,10 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U todo -d todo"]
+      # -h forces a TCP check. Without it pg_isready talks over the Unix socket
+      # and reports ready during the image's init phase, when only a temporary
+      # socket-only server is running and migrations are still being applied.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U todo -d todo"]
       interval: 3s
       timeout: 3s
       retries: 20

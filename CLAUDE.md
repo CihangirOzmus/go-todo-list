@@ -31,9 +31,10 @@ Swagger annotations live above each handler + on `main.go`. The generated `docs/
 After changing any `@Summary` / `@Param` / `@Router` / DTO struct — or the global `@title` block on `main.go` — regenerate:
 
 ```
-go install github.com/swaggo/swag/cmd/swag@latest   # once, if not installed
-$(go env GOPATH)/bin/swag init -g main.go -o docs --parseDependency --parseInternal
+go run github.com/swaggo/swag/cmd/swag@v1.16.6 init -g main.go -o docs --parseDependency --parseInternal
 ```
+
+Pin the version to the `swaggo/swag` line in `go.mod`. Older binaries (e.g. a stale `swag` in `$GOPATH/bin`) fail to parse the Go 1.27 stdlib with `method must have no type parameters`.
 
 Swagger UI is served at `http://localhost:8080/swagger/index.html` (bare `/swagger` redirects there). The raw spec is at `/swagger/doc.json`.
 

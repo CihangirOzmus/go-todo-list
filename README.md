@@ -14,7 +14,7 @@ Stack: Go 1.26 · stdlib `net/http` (Go 1.22+ mux) · PostgreSQL 18 · `pgx/v5` 
 
 ## Functional requirements
 
-- **FR-1 Registration.** Anyone can register an account with a username, email, and password. New accounts always get role `user`; there is no self-service role choice.
+- **FR-1 Registration.** Anyone can register an account with a username, email, and password. Username and email are trimmed and must be non-empty; the password must be 6–72 bytes (bcrypt's hard limit). Username and email must each be unique. New accounts always get role `user`; there is no self-service role choice.
 - **FR-2 Authentication.** `POST /login` exchanges email + password for a JWT (HS256). The token carries the caller's user id and role and expires after `JWT_TTL`. All protected endpoints reject requests without a valid `Authorization: Bearer <token>` header.
 - **FR-3 Authorization / roles.** Three roles enforced per operation:
   - `user` — full CRUD on **their own** lists and todos only.
@@ -39,10 +39,30 @@ Stack: Go 1.26 · stdlib `net/http` (Go 1.22+ mux) · PostgreSQL 18 · `pgx/v5` 
 - **NFR-6 Observability.** Every request emits an access-log line (`METHOD PATH STATUS DURATION`). `GET /healthz` is unauthenticated and returns 200 for liveness probes.
 - **NFR-7 Portability / deployment.** The container is built from `golang:1.26-alpine` (builder) → `gcr.io/distroless/static-debian12:nonroot` (runtime). No CGO, no shell in the image, runs as the `nonroot` user. `docker compose up --build` is the only command needed to bring up the full stack.
 - **NFR-8 Configurability.** All environment-specific values are env vars (`DATABASE_URL`, `JWT_SECRET`, `JWT_TTL`, `PORT`) — no code changes for a new environment, secret rotation, or token-lifetime tuning.
-- **NFR-9 API contract.** JSON in / JSON out for every endpoint. Consistent status contract: `201` on create, `204` on delete, `200` on read/update, `400` bad payload, `401` missing/invalid token, `403` role or ownership rejects, `404` unknown id, `409` username/email conflict. Error payloads share the shape `{"error": "..."}`.
+- **NFR-9 API contract.** JSON in / JSON out for every endpoint. Consistent status contract: `201` on create, `204` on delete, `200` on read/update, `400` bad payload, `401` missing/invalid token, `403` role or ownership rejects, `404` unknown id, `409` username/email conflict, `413` request body over 1 MiB. Error payloads share the shape `{"error": "..."}`.
 - **NFR-10 Robustness.** `http.Server.ReadHeaderTimeout` is set to 5s to blunt slow-header attacks. All handlers use request-scoped `context.Context` so client disconnects propagate to DB calls.
-- **NFR-11 Testability.** Services depend on repository interfaces so unit tests use in-memory fakes — no test database required. `go test -race ./...` is clean.
+- **NFR-11 Testability.** Services depend on repository interfaces so unit tests use in-memory fakes — no test database required. `go test -race ./...`, `go vet`, and `staticcheck` are clean; `govulncheck` reports no reachable vulnerabilities.
 - **NFR-12 Performance basics.** Connection pooling via `pgxpool`. Foreign key columns (`todo_lists.user_id`, `todos.list_id`) are indexed for owner-scoped and list-scoped queries.
+
+---
+
+## Project layout
+
+```
+main.go                 wiring: config → pgxpool → repos → services → handlers → http.Server
+internal/
+  config/               env-var loader; fails fast on missing DATABASE_URL / JWT_SECRET
+  auth/                 bcrypt helpers + HS256 JWT Issuer (Issue / Parse)
+  models/               User, TodoList, Todo, Role
+  repository/           pgx-backed data access; maps pgx.ErrNoRows → ErrNotFound, 23505 → ErrConflict
+  service/              business logic; ownership + role checks (canRead / canWrite) live here
+  middleware/           RequireAuth (Bearer → claims in ctx), RequireRole (coarse role gate)
+  handler/              HTTP boundary: DTOs, router (stdlib mux), error → status mapping
+docs/                   generated Swagger spec (do not edit; see "Regenerating Swagger docs")
+migrations/001_init.sql schema, applied once by the Postgres image on an empty data dir
+```
+
+Request flow: `handler` decodes and validates the shape, calls a `service` with a `Caller{UserID, Role}` taken from the JWT, the service enforces ownership/role rules and talks to a `repository`, and `handleErr` maps the service's sentinel errors to HTTP statuses.
 
 ---
 
@@ -180,7 +200,15 @@ export PORT='8080'
 go run .
 ```
 
-Or copy `.env.example` to `.env` and source it.
+Or copy `.env.example` to `.env`, edit it, and export it before running:
+
+```
+cp .env.example .env
+set -a; source .env; set +a
+go run .
+```
+
+`.env` is git-ignored.
 
 ---
 
@@ -236,19 +264,42 @@ Authenticated (any role) — send `Authorization: Bearer <token>`:
 | PUT    | `/admin/users/{id}/role`    | Body: `{"role":"user\|power_user\|admin"}` |
 | DELETE | `/admin/users/{id}`         | Cascades to lists + todos          |
 
-HTTP status contract: `201` on create, `204` on delete, `200` on read/update, `400` bad payload, `401` missing/invalid token, `403` role or ownership rejects, `404` unknown id, `409` username/email already taken.
+HTTP status contract: `201` on create, `204` on delete, `200` on read/update, `400` bad payload, `401` missing/invalid token, `403` role or ownership rejects, `404` unknown id, `409` username/email already taken, `413` body over 1 MiB.
 
 ---
 
 ## Tests
 
 ```
-go test ./...              # all unit tests
-go test -race ./...        # with the race detector
+go test ./...                       # all unit tests
+go test -race ./...                 # with the race detector
+go test -cover ./...                # per-package coverage
+go test -run TestName ./internal/...  # a single test
 go vet ./...
 ```
 
-Unit tests do not require a running Postgres — services are tested against in-memory fake repositories.
+Optional extra checks (run via `go run`, nothing to install):
+
+```
+go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+```
+
+Unit tests do not require a running Postgres — services are tested against in-memory fake repositories (`internal/service/fakes_test.go`), handlers against stub services with `httptest`, and auth/middleware against their real implementations. The repository package has no unit tests; it is exercised only by running the app against the compose database.
+
+---
+
+## Known limitations
+
+Deliberate simplifications for a learning project:
+
+- **No refresh or revocation.** A JWT is valid until `exp`; changing a user's role or deleting the user does not invalidate tokens already issued. Log in again to pick up a new role.
+- **Emails are case-sensitive.** `Alice@example.com` and `alice@example.com` are two different accounts.
+- **Login timing.** An unknown email returns slightly faster than a wrong password because the bcrypt compare is skipped.
+- **No pagination.** `GET /lists`, `GET /admin/lists`, and `GET /admin/users` return everything.
+- **Full-replace updates.** `PUT /todos/{id}` requires both `content` and `completed`; there is no partial `PATCH`.
+- **Single migration.** Schema changes mean `docker compose down -v` and re-`up`; there is no migration tool.
+- **Repository layer is untested** in isolation (see Tests).
 
 ---
 
@@ -257,8 +308,9 @@ Unit tests do not require a running Postgres — services are tested against in-
 If you touch swag annotations, DTOs, or the `@title` block on `main.go`, regenerate `docs/`:
 
 ```
-go install github.com/swaggo/swag/cmd/swag@latest    # once
-$(go env GOPATH)/bin/swag init -g main.go -o docs --parseDependency --parseInternal
+go run github.com/swaggo/swag/cmd/swag@v1.16.6 init -g main.go -o docs --parseDependency --parseInternal
 ```
+
+Keep the version in step with the `swaggo/swag` line in `go.mod`; older `swag` binaries cannot parse the Go 1.27 standard library.
 
 Then rebuild (or restart `docker compose up --build`). Never hand-edit files under `docs/` — they are regenerated wholesale.

@@ -27,6 +27,6 @@ go.work.sum
 # env file
 .env
 
-# Editor/IDE
-# .idea/
+# Editor/IDE (project files are shared; workspace.xml is per-user state)
+.idea/workspace.xml
 # .vscode/
