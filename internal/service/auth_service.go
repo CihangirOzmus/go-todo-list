@@ -35,7 +35,7 @@ func NewAuthService(u UserRepo, t TokenIssuer) *AuthService {
 func (s *AuthService) Register(ctx context.Context, username, email, password string) (*models.User, error) {
 	username = strings.TrimSpace(username)
 	email = strings.TrimSpace(email)
-	if username == "" || email == "" || len(password) < 6 {
+	if username == "" || email == "" || len(password) < 6 || len(password) > auth.MaxPasswordLen {
 		return nil, ErrValidation
 	}
 	hash, err := auth.HashPassword(password)

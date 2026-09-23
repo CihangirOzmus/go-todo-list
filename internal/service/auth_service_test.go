@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"errors"
+	"go-todo-list/internal/auth"
+	"strings"
 	"testing"
 
 	"go-todo-list/internal/models"
@@ -99,5 +101,22 @@ func TestMe(t *testing.T) {
 	}
 	if _, err := svc.Me(ctx, 999); !errors.Is(err, ErrNotFound) {
 		t.Errorf("expected not found, got %v", err)
+	}
+}
+
+// A password past bcrypt's 72-byte limit is bad input, not a server fault: it
+// must come back as ErrValidation (400) rather than an opaque 500.
+func TestRegister_OverLongPasswordIsValidationError(t *testing.T) {
+	ctx := context.Background()
+	svc := NewAuthService(newFakeUserRepo(), &stubIssuer{token: "t"})
+
+	_, err := svc.Register(ctx, "bob", "b@x", strings.Repeat("a", auth.MaxPasswordLen+1))
+	if !errors.Is(err, ErrValidation) {
+		t.Errorf("got %v, want ErrValidation", err)
+	}
+
+	// The longest password bcrypt accepts must still register.
+	if _, err := svc.Register(ctx, "bob", "b@x", strings.Repeat("a", auth.MaxPasswordLen)); err != nil {
+		t.Errorf("a %d-byte password was rejected: %v", auth.MaxPasswordLen, err)
 	}
 }

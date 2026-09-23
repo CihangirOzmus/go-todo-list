@@ -23,8 +23,18 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, ErrorResponse{Error: msg})
 }
 
+// maxBodyBytes caps request bodies so an unauthenticated caller cannot make us
+// buffer an arbitrarily large payload.
+const maxBodyBytes = 1 << 20 // 1 MiB
+
 func decodeBody(w http.ResponseWriter, r *http.Request, out any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	if err := json.NewDecoder(r.Body).Decode(out); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeErr(w, http.StatusRequestEntityTooLarge, "request body too large")
+			return false
+		}
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return false
 	}

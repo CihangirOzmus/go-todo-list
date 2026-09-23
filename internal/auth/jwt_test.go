@@ -82,3 +82,41 @@ func TestParseTampered(t *testing.T) {
 		t.Errorf("expected error for tampered token")
 	}
 }
+
+// Parse pins the algorithm, so a token signed with another HMAC variant — even
+// with the right secret — must be rejected.
+func TestParseRejectsOtherSigningAlgorithms(t *testing.T) {
+	const secret = "secret"
+	iss := NewIssuer(secret, time.Hour)
+
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS384, jwt.MapClaims{
+		"sub":  "1",
+		"role": string(models.RoleAdmin),
+		"exp":  time.Now().Add(time.Hour).Unix(),
+	})
+	signed, err := tok.SignedString([]byte(secret))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := iss.Parse(signed); err == nil {
+		t.Error("expected HS384 to be rejected")
+	}
+}
+
+// A token with no exp claim would never expire, so Parse requires one.
+func TestParseRequiresExpiration(t *testing.T) {
+	const secret = "secret"
+	iss := NewIssuer(secret, time.Hour)
+
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub":  "1",
+		"role": string(models.RoleAdmin),
+	})
+	signed, err := tok.SignedString([]byte(secret))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := iss.Parse(signed); err == nil {
+		t.Error("expected a token without exp to be rejected")
+	}
+}

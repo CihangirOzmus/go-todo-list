@@ -24,6 +24,9 @@ func Load() (Config, error) {
 	if err != nil {
 		return c, err
 	}
+	if d <= 0 {
+		return c, errors.New("JWT_TTL must be positive")
+	}
 	c.JWTTTL = d
 
 	if c.DatabaseURL == "" {
