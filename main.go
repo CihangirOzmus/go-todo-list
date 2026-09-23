@@ -16,6 +16,7 @@ import (
 	"go-todo-list/internal/auth"
 	"go-todo-list/internal/config"
 	"go-todo-list/internal/handler"
+	"go-todo-list/internal/middleware"
 	"go-todo-list/internal/repository"
 	"go-todo-list/internal/service"
 )
@@ -65,10 +66,13 @@ func main() {
 	adminH := handler.NewAdminHandler(adminSvc)
 
 	router := handler.NewRouter(authH, todoH, adminH, issuer)
+	// CORS sits outside the mux so preflight OPTIONS requests are answered
+	// before routing (the mux has no OPTIONS patterns and would 405 them).
+	cors := middleware.CORS(cfg.CORSOrigins)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           accessLog(router),
+		Handler:           accessLog(cors(router)),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

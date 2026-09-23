@@ -63,6 +63,61 @@ func TestLoad_RequiredVars(t *testing.T) {
 	})
 }
 
+func TestLoad_CORSOrigins(t *testing.T) {
+	t.Run("default covers Vite and CRA dev servers", func(t *testing.T) {
+		setEnv(t, "postgres://db", "s3cret", "", "")
+		t.Setenv("CORS_ORIGINS", "")
+
+		c, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []string{"http://localhost:5173", "http://localhost:3000"}
+		if !equalStrings(c.CORSOrigins, want) {
+			t.Errorf("origins %q, want %q", c.CORSOrigins, want)
+		}
+	})
+
+	t.Run("comma-separated override", func(t *testing.T) {
+		setEnv(t, "postgres://db", "s3cret", "", "")
+		t.Setenv("CORS_ORIGINS", "https://todo.example.com,http://localhost:4200")
+
+		c, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []string{"https://todo.example.com", "http://localhost:4200"}
+		if !equalStrings(c.CORSOrigins, want) {
+			t.Errorf("origins %q, want %q", c.CORSOrigins, want)
+		}
+	})
+
+	t.Run("wildcard passes through untouched", func(t *testing.T) {
+		setEnv(t, "postgres://db", "s3cret", "", "")
+		t.Setenv("CORS_ORIGINS", "*")
+
+		c, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !equalStrings(c.CORSOrigins, []string{"*"}) {
+			t.Errorf("origins %q, want [*]", c.CORSOrigins)
+		}
+	})
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func TestLoad_BadTTL(t *testing.T) {
 	// A non-positive TTL would mint tokens that are already expired, and an
 	// unparseable one is a straight typo — both must fail fast at startup.

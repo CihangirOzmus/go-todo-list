@@ -22,7 +22,7 @@ docker compose up --build             # bring up Postgres + app on :8080
 docker compose down -v                # drop everything including the pgdata volume
 ```
 
-Required env vars (see `.env.example`): `DATABASE_URL`, `JWT_SECRET`, `JWT_TTL` (default `24h`), `PORT` (default `8080`).
+Required env vars (see `.env.example`): `DATABASE_URL`, `JWT_SECRET`, `JWT_TTL` (default `24h`), `PORT` (default `8080`), `CORS_ORIGINS` (comma-separated browser origins; default `http://localhost:5173,http://localhost:3000`, `*` allows any).
 
 ### Regenerating Swagger docs
 
@@ -53,7 +53,7 @@ handler → service → repository → pgxpool → Postgres
 - `internal/config` — env-var loader; fails fast on missing `DATABASE_URL` / `JWT_SECRET`.
 - `internal/repository` — thin `pgxpool`-backed data access. `UserRepo` maps Postgres `23505` (unique_violation) to `ErrConflict`; both repos map `pgx.ErrNoRows` to `ErrNotFound`.
 - `internal/service` — business logic. **Ownership + role checks live here**, not in middleware, because `power_user`/`admin` bypasses are per-operation. Services take repo *interfaces* (`UserRepo`, `TokenIssuer`, `TodoRepo`) so tests can plug in fakes (`internal/service/fakes_test.go`).
-- `internal/middleware` — `RequireAuth` parses the `Bearer` header, stashes `auth.Claims` in `context.Context`. `RequireRole(...roles)` is a coarse gate for role-scoped routes (e.g., admin routes). Finer authorization is the service's job.
+- `internal/middleware` — `RequireAuth` parses the `Bearer` header, stashes `auth.Claims` in `context.Context`. `RequireRole(...roles)` is a coarse gate for role-scoped routes (e.g., admin routes). Finer authorization is the service's job. `CORS(origins)` is applied in `main.go` *outside* the mux (not in `router.go`) so preflight `OPTIONS` is answered before routing; the mux has no `OPTIONS` patterns and would otherwise 405 it.
 - `internal/handler` — HTTP boundary. `handler.go` has shared helpers (`writeJSON`, `handleErr` which maps `service.Err*` sentinels to HTTP statuses, `idParam`, `callerFrom`). `dto.go` defines the named request/response types Swagger references. `router.go` wires all routes with the stdlib `net/http` Go 1.22+ mux (`"POST /lists/{id}"` patterns) and applies middleware, plus mounts `/swagger/` via `swaggo/http-swagger`.
 - `docs/` — **generated** by `swag` from annotations. Blank-imported by `main.go` so the `/swagger/doc.json` endpoint can find the spec. Do not edit by hand; re-run `swag init` (see below).
 

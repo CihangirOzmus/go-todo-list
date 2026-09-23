@@ -38,7 +38,7 @@ Stack: Go 1.26 · stdlib `net/http` (Go 1.22+ mux) · PostgreSQL 18 · `pgx/v5` 
 - **NFR-5 Reliability.** Startup fails fast on missing config or DB unreachable (`pool.Ping` on boot). The app shuts down gracefully on `SIGINT`/`SIGTERM` with a bounded drain window. Compose gates `app` on the DB's healthcheck so it never starts against an unready database.
 - **NFR-6 Observability.** Every request emits an access-log line (`METHOD PATH STATUS DURATION`). `GET /healthz` is unauthenticated and returns 200 for liveness probes.
 - **NFR-7 Portability / deployment.** The container is built from `golang:1.26-alpine` (builder) → `gcr.io/distroless/static-debian12:nonroot` (runtime). No CGO, no shell in the image, runs as the `nonroot` user. `docker compose up --build` is the only command needed to bring up the full stack.
-- **NFR-8 Configurability.** All environment-specific values are env vars (`DATABASE_URL`, `JWT_SECRET`, `JWT_TTL`, `PORT`) — no code changes for a new environment, secret rotation, or token-lifetime tuning.
+- **NFR-8 Configurability.** All environment-specific values are env vars (`DATABASE_URL`, `JWT_SECRET`, `JWT_TTL`, `PORT`, `CORS_ORIGINS`) — no code changes for a new environment, secret rotation, or token-lifetime tuning.
 - **NFR-9 API contract.** JSON in / JSON out for every endpoint. Consistent status contract: `201` on create, `204` on delete, `200` on read/update, `400` bad payload, `401` missing/invalid token, `403` role or ownership rejects, `404` unknown id, `409` username/email conflict, `413` request body over 1 MiB. Error payloads share the shape `{"error": "..."}`.
 - **NFR-10 Robustness.** `http.Server.ReadHeaderTimeout` is set to 5s to blunt slow-header attacks. All handlers use request-scoped `context.Context` so client disconnects propagate to DB calls.
 - **NFR-11 Testability.** Services depend on repository interfaces so unit tests use in-memory fakes — no test database required. `go test -race ./...`, `go vet`, and `staticcheck` are clean; `govulncheck` reports no reachable vulnerabilities.
@@ -220,8 +220,11 @@ go run .
 | `JWT_SECRET`   | yes      | —       | HMAC-SHA256 signing key. Any non-empty string works; use something long and random in production. |
 | `JWT_TTL`      | no       | `24h`   | Any `time.ParseDuration` value: `15m`, `24h`, `168h`, … |
 | `PORT`         | no       | `8080`  | HTTP listen port                                       |
+| `CORS_ORIGINS` | no       | `http://localhost:5173,http://localhost:3000` | Comma-separated browser origins allowed to call the API (exact match on scheme + host + port). `*` allows any origin. |
 
 The app fails fast on startup if `DATABASE_URL` or `JWT_SECRET` is missing.
+
+CORS is handled by `middleware.CORS`, applied in `main.go` around the whole router so preflight `OPTIONS` requests are answered before routing. Preflight never reaches the auth middleware, but the real request still does: a missing or wrong token gets `401`/`403` with CORS headers attached, so a browser client can read the JSON error body.
 
 ---
 
@@ -285,7 +288,7 @@ go run honnef.co/go/tools/cmd/staticcheck@latest ./...
 go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 ```
 
-Unit tests do not require a running Postgres — services are tested against in-memory fake repositories (`internal/service/fakes_test.go`), handlers against stub services with `httptest`, and auth/middleware against their real implementations. The repository package has no unit tests; it is exercised only by running the app against the compose database.
+Unit tests do not require a running Postgres — services are tested against in-memory fake repositories (`internal/service/fakes_test.go`), handlers against stub services with `httptest`, and auth/middleware against their real implementations. `internal/handler/cors_router_test.go` wraps the real router in the CORS middleware, as `main.go` does, and checks that preflight passes on protected routes while the actual requests still get `401`/`403`. The repository package has no unit tests; it is exercised only by running the app against the compose database.
 
 ---
 

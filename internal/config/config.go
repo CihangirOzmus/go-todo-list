@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -11,6 +12,9 @@ type Config struct {
 	JWTSecret   string
 	JWTTTL      time.Duration
 	Port        string
+	// CORSOrigins are the browser origins allowed to call the API.
+	// Comes from CORS_ORIGINS, comma-separated; "*" allows any origin.
+	CORSOrigins []string
 }
 
 func Load() (Config, error) {
@@ -18,6 +22,7 @@ func Load() (Config, error) {
 		DatabaseURL: os.Getenv("DATABASE_URL"),
 		JWTSecret:   os.Getenv("JWT_SECRET"),
 		Port:        getEnv("PORT", "8080"),
+		CORSOrigins: strings.Split(getEnv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000"), ","),
 	}
 	ttlRaw := getEnv("JWT_TTL", "24h")
 	d, err := time.ParseDuration(ttlRaw)
